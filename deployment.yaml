@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fault-tolerant-app
+
+spec:
+  # 4 пода для основной нагрузки +1 для отказоустойчивости
+  replicas: 5
+  selector:
+    matchLabels:
+      app: fault-tolerant-app
+  
+  template:
+    metadata:
+      labels:
+        app: fault-tolerant-app
+    
+    spec:
+      # Обеспечивает равномерное распределение подов по зонам
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: fault-tolerant-app
+      
+      # Обеспечивает распределение подов по разным нодам
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - fault-tolerant-app
+              topologyKey: "kubernetes.io/hostname"
+
+      # Основное приложение, запросы и лимиты ресурсы, пробы
+      containers:
+      - name: fault-tolerant-app
+        image: app-image:tag
+        # Про ресурсы и способы подобрать правильный CPU limits подробно в README.md
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 192Mi
+        # Готовность пода исходя из времени иницализации приложения
+        readinessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        # Проверка рабоспособности пода
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+            port: 8080
+          # Возможно, потребуется уточнить эти параметры
+          initialDelaySeconds: 15
+          periodSeconds: 10
+  
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Используем 1 дополнительный под для раскатки обновления
+      maxSurge: 1
+      # Ноль недоступных подов во время обновления для отказоустойчивости
+      maxUnavailable: 0
+
+---
+# Масштабирование при увеличении дневной нагрузки
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fault-tolerant-app-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fault-tolerant-app
+  # Соответствует числу реплик в основном deployment
+  minReplicas: 5
+  # Значение maxReplicas требует уточнения, исходя из максимальной фактической нагрузки
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      # Требует уточнения, исходя из скорости роста нагрузки и агрессивности масштабирования
+      targetAverageUtilization: 80
