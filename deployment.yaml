@@ -18,8 +18,11 @@ spec:
     spec:
       # Обеспечивает равномерное распределение подов по зонам
       topologySpreadConstraints:
+      # Разница в 1 под между зонами
       - maxSkew: 1
+        # Используем зоны в качестве топологических доменов
         topologyKey: topology.kubernetes.io/zone
+        # Не планировать под, если ограничение не соблюдается
         whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels:
@@ -28,15 +31,16 @@ spec:
       # Обеспечивает распределение подов по разным нодам
       affinity:
         podAntiAffinity:
+          # preferredDuringScheduling - предпочтение, а не жесткое требование
+          # IgnoredDuringExecution - не перемещать под, если условия изменились
           preferredDuringSchedulingIgnoredDuringExecution:
+          # Вес применения правила, где 100% - применять всегда
           - weight: 100
             podAffinityTerm:
               labelSelector:
-                matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                  - fault-tolerant-app
+                matchLabels:
+                  app: fault-tolerant-app
+              # Применяем на уровне нод кластера
               topologyKey: "kubernetes.io/hostname"
 
       # Основное приложение, запросы и лимиты ресурсы, пробы
@@ -51,7 +55,7 @@ spec:
           limits:
             cpu: 250m
             memory: 192Mi
-        # Готовность пода исходя из времени иницализации приложения
+        # Готовность пода, исходя из времени инициализации приложения
         readinessProbe:
           httpGet:
             path: /healthcheck
